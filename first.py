@@ -2,9 +2,10 @@
 
 import sys, getopt
 import requests
-from HTMLParser import HTMLParser
+from MangaPandaHTMLParser import MangaPandaHTMLParser
 import zipfile
 from subprocess import call
+from array import *
 
 # ~~~~~ CONFIGURATION ~~~~~
 site    = "http://www.mangapanda.com"
@@ -12,72 +13,8 @@ mangas  = 'tales-of-demons-and-gods'
 chapNum = 3
 # ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# ~~~~~ Classe de parsing HTML ~~~~~
-class MangaPandaHTMLParser(HTMLParser):
-	def findNextChapterFromURL(self, url):
-		ret = ""
-		# on recupere la chaine "/manga/chap/image"
-		s = url[url.rfind(mangas)-1:]
-		print "DBG: url:", url
-		print "DBG: s  :", s
-		if s.count('/') > 2:
-			idx = s.rfind('/')
-			idz = s.rfind('/', 0, idx)
-			ret = s[idz+1:idx]
-		else:
-			# de temps en temps on a la chaine "/manga/chap"
-			ret = s[s.rfind('/')+1:]
-		return int(ret)
 
-	def handle_starttag(self, tag, attrs):
-		if self.verbose == 1:
-			print "Encountered a start tag:", tag
-		if self.verbose == 1 and tag == "div":
-			self.numDiv += 1
-		if self.verbose == 1 and tag == "a":
-			for attr in attrs:
-				print (attr[0], attr[1])
-				if attr[0] == "href":
-					self.nextURL = site + attr[1]
-		if self.verbose == 1 and tag == "img":
-			for attr in attrs:
-				if attr[0] == "src":
-					self.imgURL = attr[1]
-		if tag == "div":
-			for attr in attrs:
-				if attr[0] == 'id' and attr[1] == 'imgholder':
-					print "I'am a start div for image holding"
-					self.verbose = 1
-
-	def handle_endtag(self, tag):
-		if self.verbose == 1:
-			print "Encountered an end tag:", tag
-		if self.verbose == 1 and tag == "div":
-			if self.numDiv == 0:
-				self.verbose = 0
-			else:
-				self.numDiv -= 1
-
-	def handle_data(self, data):
-		i = 1
-		#print "Encountered some data  :", data
-
-	def __init__(self):
-		HTMLParser.__init__(self)
-		self.verbose = 0
-		self.numDiv  = 0
-		self.nextURL = ""
-		self.imgURL  = ""
-
-
-	def reset(self):
-		HTMLParser.reset(self)
-		self.verbose = 0
-		self.numDiv  = 0
-		self.nextURL = ""
-		self.imgURL  = ""
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 usageHelp = sys.argv[0] + """  ---  Help
 
 usage: 
@@ -94,8 +31,6 @@ try:
 except getopt.GetoptError:
 	print usageHelp
 	sys.exit(2)
-
-from array import *
 
 mandatory = array('c') # ceci est un array de caracteres
 mandatory.append('m')
@@ -118,12 +53,17 @@ if len(mandatory) > 0:
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+print "Manga  : " + mangas
+print "Chapter: " + str(chapNum)
 
 url = site + "/" + mangas + "/" + str(chapNum)
 index = 0
 goNext = 1
 
 images = []
+
+parser = MangaPandaHTMLParser()
+parser.setMangaName(mangas)
 
 while goNext == 1:
 	index += 1
@@ -132,7 +72,6 @@ while goNext == 1:
 		print "Something went wrong:", r.status_code
 		exit(1)
 
-	parser = MangaPandaHTMLParser()
 	parser.feed(r.content)
 
 	print "PARSER: image url:", parser.imgURL
@@ -168,4 +107,34 @@ for image in images:
 	print image
 z.close()
 
-call(["ebook-convert", n, m])
+# call(["ebook-convert", n, m])
+
+from ebooklib import epub
+
+book = EpubBook()
+
+# set metadata
+book.set_identifier('id123456')
+book.set_title('Sample Ebook')
+book.set_language('en')
+
+book.add_author('Author Tarrke')
+
+# create chapter
+c1 = epub.EpubHtml(title='Intro', file_name='chap_01.xhmtl', lang='en')
+c1.content=u'<h1>Introduction</h1><p>Salut le monde.</p>'
+
+book.add_item(c1)
+
+book.toc = (epub.Link('chap_01.xhtml', 'Introduction', 'intro'), epub.Section('Simple book'), (c1, ))
+
+book.add_item(epub.EpubNcx())
+book.add_item(epub.EpubNav())
+
+style= 'BODY {color: white;}'
+nav_css = epub.EpubItem(uid="style_nav", file_name="style/nav.css", media_type="text/cass", content=style)
+book.add_item(nav_css)
+
+book.spine = ['nav', c1]
+
+epub.write_epub('est.epub', book, {})
